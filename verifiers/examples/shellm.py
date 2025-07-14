@@ -183,11 +183,17 @@ class ShellEnv(MultiTurnEnv):
             # Every non-zero exit code is penalized with -0.05 reward
             return -1 * sum([0.05 for x in exit_codes if x != 0])
             return is_correct / (num_turns + 1)
+        def check_success_command(completion, answer, state, info, **kwargs) -> float:
+            success_command = info['success_condition']
+            sandbox = state['sandbox']
+            _, _, exit_code = sandbox.execute_command(success_command)
+            sandbox.stop()
+            # Success command has low reward as it's LLM generated and could be wrong,
+            # so I reward it a bit for being correct but let the Judge LLM provide
+            # stronger rewards.
+            return 0.2 if exit_code == 0 else 0.0
         rubric.add_reward_func(check_exit_codes)
-        # def count_turns_reward_func(completion, answer, **kwargs) -> float:
-        #     num_turns = len([x for x in completion if x['role'] == 'assistant'])
-        #     is_correct = check_answer_reward_func(completion, answer, **kwargs)
-        # rubric.add_reward_func(count_turns_reward_func)
+        rubric.add_reward_func(check_success_command)
 
         super().__init__(
             dataset=dataset,
