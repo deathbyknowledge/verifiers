@@ -25,6 +25,7 @@ dependencies = [
     "openai",
     "datasets",
     "docker>=7.1.0",
+    "flash-attn>=2.8.1",
 ]
 
 [project.optional-dependencies]

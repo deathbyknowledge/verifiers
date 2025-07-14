@@ -3,11 +3,12 @@ from abc import abstractmethod
 from copy import deepcopy
 from typing import List, Dict, Any, Tuple, Union
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, OpenAI
 import verifiers as vf
 from verifiers import ChatMessage, Messages, MultiTurnEnv
-from verifiers.envs.textarena_env import TextArenaEnv
 
+from dotenv import load_dotenv
+load_dotenv()
 
 
 import docker
@@ -155,12 +156,9 @@ import random
 from typing import Tuple, List, Dict, Any
 
 from datasets import Dataset, load_dataset
-import nltk 
-nltk.download('words', quiet=True)
-nltk.download('averaged_perceptron_tagger_eng', quiet=True)
-import textarena as ta 
 
 from verifiers import MultiTurnEnv, Parser, Rubric
+import os
 
 
 class ShellEnv(MultiTurnEnv):
@@ -173,11 +171,14 @@ class ShellEnv(MultiTurnEnv):
                  **kwargs):
         self.seed = seed
         dataset = load_dataset('deathbyknowledge/V3-shell-format', split=['train'])
-        eval_dataset = dataset.select(range(200, 300)) # type: ignore
-        dataset = dataset.select(range(300, eval_dataset.num_rows)) # type: ignore
+        eval_dataset = Dataset.from_list(dataset[200:300]) # type: ignore
+        dataset = Dataset.from_list(dataset[300:]) # type: ignore
 
         parser = Parser()
-        rubric = ShellJudgeRubric(parser=parser)
+        base_url = "https://api.deepseek.com"
+        api_key = os.environ.get("DEEPSEEK_API_KEY")
+        rubric = ShellJudgeRubric(parser=parser, judge_model="deepseek-chat", judge_client=OpenAI(base_url=base_url, api_key=api_key))
+
         def check_exit_codes(completion, answer, state, info, **kwargs) -> float:
             exit_codes = state['exit_codes']
             # Every non-zero exit code is penalized with -0.05 reward
@@ -312,7 +313,6 @@ class ShellEnv(MultiTurnEnv):
                 completion.append(env_msg)
         return completion, state
 
-from openai import OpenAI
 
 DEFAULT_JUDGE_PROMPT = """
 You are an expert evaluator. Your role is to determine if a task, executed in a Linux shell environment, was successfully completed based on the provided trajectory.
@@ -404,10 +404,10 @@ class ShellJudgeRubric(Rubric):
 
 """
 inference:
-CUDA_VISIBLE_DEVICES=0,1,2,3 vf-vllm --model willcb/Qwen2.5-7B-Wordle-SFT --tensor-parallel-size 4
+CUDA_VISIBLE_DEVICES=0 vf-vllm --model deathbyknowledge/Qwen3-8B-Shell-SFT --tensor-parallel-size 1
 
 training:
-CUDA_VISIBLE_DEVICES=4,5,6,7 accelerate launch --config-file configs/zero3.yaml --num-processes 4 verifiers/examples/wordle.py
+CUDA_VISIBLE_DEVICES=1 accelerate launch --config-file configs/zero3.yaml --num-processes 1 verifiers/examples/shellm.py
 """
 
 model_name = f'deathbyknowledge/Qwen3-8B-Shell-SFT'
@@ -421,8 +421,8 @@ vf_env = ShellEnv(
 run_name = f"shell-grpo-8B"
 training_args=vf.grpo_defaults(run_name=run_name)
 training_args.num_iterations=1
-training_args.per_device_train_batch_size=8
-training_args.num_generations=16
+training_args.per_device_train_batch_size=2
+training_args.num_generations=8
 training_args.gradient_accumulation_steps=6
 training_args.max_prompt_length=1024
 training_args.max_completion_length=3072
